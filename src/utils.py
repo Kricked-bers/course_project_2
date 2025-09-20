@@ -1,7 +1,6 @@
 import pandas as pd
-import datetime
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
-from typing import Any
 import requests
 import os
 import json
@@ -29,7 +28,7 @@ def xls_analyzer(directory: str) -> list:
         dataframe = dataframe.to_dict("records")
         app_logger.info("Файл обработан успешно.")
         return dataframe
-    except FileNotFoundError:
+    except Exception:
         app_logger.warning("Критическая ошибка. Остановка программы...")
         return []
 
@@ -37,7 +36,9 @@ def xls_analyzer(directory: str) -> list:
 def time_now(date_or_time: str = "time") -> str:
     """Функция возвращает приветствие в зависимости от текущего времени,
     при указании date_or_time = date вернет текущую дату"""
-    now_datetime = datetime.datetime.now()
+    if not isinstance(date_or_time, str) or len(date_or_time) == 0:
+        return []
+    now_datetime = datetime.now()
     if date_or_time == "date":
         now_date = str(now_datetime.date()).split("-")
         now_date[0], now_date[2] = now_date[2], now_date[0]
@@ -58,6 +59,8 @@ def time_now(date_or_time: str = "time") -> str:
 def data_for_the_report(data: list, now_date: str = time_now("date")) -> list:
     """Функция принимает на вход список со словарями и датой(текущей по умолчанию)
     и возвращает операции с начала введенного месяца до введенного дня"""
+    if not isinstance(now_date, str) or len(now_date) == 0:
+        return []
     new_data_for_period = []
     for element_data in data:
         date_for_element_data = element_data["Дата операции"][:10].split(".")
@@ -72,38 +75,41 @@ def data_for_the_report(data: list, now_date: str = time_now("date")) -> list:
 def exchange_rate_api() -> list:
     """Функция возвращает текущие стоимости валют и акций по настройкам пользователя"""
     load_dotenv()
-    api_token = os.getenv("API_KEY_RATES")
-    api_token_sp = os.getenv("API_KEY_SP500")
+    api_token, api_token_sp = os.getenv("API_KEY_RATES"), os.getenv("API_KEY_SP500")
     json_result = open(
-        r"C:\Users\islam\PycharmProjects\pythonProject\user_settings.json",
-        encoding="UTF-8",
-    )
-    json_list_result = json.load(json_result)
-    user_currencies = json_list_result["user_currencies"]
-    user_stocks = json_list_result["user_stocks"]
-    base = "RUB"
-    url = f"https://api.apilayer.com/exchangerates_data/{time_now("date_format")}?symbols={",".join(user_currencies)}&base={base}"
+        r"C:\Users\islam\PycharmProjects\pythonProject\user_settings.json", encoding="UTF-8", )
+    json_list_result, base = json.load(json_result), "RUB"
+    user_currencies, user_stocks = json_list_result["user_currencies"], json_list_result["user_stocks"]
+    date = datetime.now()
+    day_yesterday = str(date - timedelta(days=1))[:10]
+    url = f"https://api.apilayer.com/exchangerates_data/{day_yesterday}?symbols={",".join(user_currencies)}&base={base}"
     headers = {"apikey": api_token}
-    # Запрос к валютам
     response = requests.request("GET", url, headers=headers)
     amount_rub = json.loads(response.text)
     for key, value in amount_rub["rates"].items():
         amount_rub["rates"][key] = int(value * 10000)
-    date = datetime.datetime.now()
-    # запрос к акциям
-    day_yesterday = str(date - datetime.timedelta(days=1))[:10]
-    url_sp = f'http://api.marketstack.com/v1/eod?access_key={api_token_sp}&symbols={",".join(user_stocks)}&date_to={time_now("date_format")}&date_from={day_yesterday}'
-    anw_sp = requests.request("GET", url_sp)
-    data_sp = json.loads(anw_sp.text)
-    return [amount_rub["rates"], {i["symbol"]: i["close"] for i in data_sp["data"]}]
+    try:
+        url_sp = (f'http://api.marketstack.com/v1/eod?access_key={api_token_sp}&symbols={",".join(user_stocks)}'
+                  f'&date_to={time_now("date_format")}&date_from={day_yesterday}')
+        anw_sp = requests.request("GET", url_sp)
+        data_sp = json.loads(anw_sp.text)
+        return [amount_rub["rates"], {i["symbol"]: i["close"] for i in data_sp["data"]}]
+    except Exception:
+        return [amount_rub["rates"], {i: 100 for i in user_stocks}]
 
 
-def info_for_the_card(transactions: list) -> Any:
+def info_for_the_card(transactions):
     """Функция принимает на вход список с транзакциями и возвращает информацию в виде
     (номер карты, сумма расходов, кэшбэк) по каждой карте"""
-    cards_numbers_list = set(
-        [i["Номер карты"] for i in transactions if i["Номер карты"] == i["Номер карты"]]
-    )
+    if isinstance(transactions, dict) and len([transactions]) == 1:
+        return {"Номер карты": transactions["Номер карты"],
+                "Сумма расходов": abs(transactions["Сумма операции"]),
+                "Кэшбек": abs(transactions["Сумма операции"]) / 100
+                }
+    else:
+        cards_numbers_list = set(
+            [i["Номер карты"] for i in transactions]
+        )
     list_for_returned = list()
     for number_card in cards_numbers_list:
         card_sum = 0
@@ -127,6 +133,8 @@ def info_for_the_card(transactions: list) -> Any:
 def top_five_transactions(transactions: list) -> list:
     """Функция принимает на вход список транзакций и возвращает топ 5 транзакций
     по сумме платежа"""
+    if not isinstance(transactions, (list, dict)) or len([transactions]) == 0:
+        return []
     return sorted(transactions, key=lambda x: (x["Сумма платежа"]))[:5]
 
 
@@ -146,5 +154,6 @@ def re_search_string(transactions: list, search_string: str) -> list:
             new_list_transactions.append(transaction)
     return new_list_transactions
 
-# data = xls_analyzer(r'C:\Users\islam\PycharmProjects\pythonProject\data\operations.xlsx')
-# print(data_for_the_report(data, "31.12.2021"))
+operations = xls_analyzer(r"C:\Users\islam\PycharmProjects\pythonProject\data\operations.xlsx")
+
+
