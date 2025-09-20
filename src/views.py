@@ -1,5 +1,8 @@
-from src.utils import *
 import json
+
+from src.utils import (data_for_the_report, exchange_rate_api,
+                       info_for_the_card, time_now, top_five_transactions,
+                       xls_analyzer)
 
 
 def main_page():
